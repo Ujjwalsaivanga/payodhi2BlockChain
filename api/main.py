@@ -1,0 +1,390 @@
+"""payodhi FastAPI backend (P3-T7, P3-T8, P3-T9, P3-T10).
+
+Routes follow the API contract in spec Section 11. Swagger UI is auto-generated
+at ``/docs``.
+"""
+
+import asyncio
+import contextlib
+import shutil
+import tempfile
+import uuid
+from pathlib import Path
+from typing import Literal
+
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+
+from api import store
+from core import pipeline
+from core.anomalies import detect_anomalies
+from core.models import AnomalyEvent, Severity, VPNSession
+from reporting import export, render
+
+VERSION = "1.0.0"
+
+REPORT_DIR = Path(__file__).resolve().parent.parent / "reporting" / "out"
+UPLOAD_DIR = Path(tempfile.gettempdir()) / "payodhi-uploads"
+
+app = FastAPI(
+    title="Payodhi IPsec Analyzer",
+    version=VERSION,
+    description="AI-powered IPsec VPN protocol analyzer and security assessment framework (SIH 26160 · NTRO).",
+)
+
+# The dashboard is served from a different origin in dev (Vite on :5173) and
+# from nginx in Compose. Wide-open CORS is acceptable for an on-premise
+# analysis tool with no authentication surface; tighten if that changes.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.on_event("startup")
+def _startup() -> None:
+    store.init_db()
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+class IngestResponse(BaseModel):
+    session_count: int
+    job_id: str
+    fixture_mode: bool
+
+
+class HealthResponse(BaseModel):
+    status: str
+    version: str
+    parser_available: bool
+
+
+class ReportRequest(BaseModel):
+    type: Literal["executive", "technical", "json", "cef", "cbom"]
+
+
+class ReportResponse(BaseModel):
+    download_url: str
+
+
+class DegradedSession(BaseModel):
+    """A session both captures hold, whose assessment got worse.
+
+    Carries both whole records, not just the delta: the caller comparing two
+    captures is about to ask *what* changed, and making it re-fetch two
+    sessions to answer that is a round trip for nothing.
+    """
+
+    session_id: str
+    base: VPNSession
+    compare: VPNSession
+    base_score: int
+    compare_score: int
+    base_severity: Severity
+    compare_severity: Severity
+
+
+class DiffResponse(BaseModel):
+    added: list[VPNSession]
+    removed: list[VPNSession]
+    degraded: list[DegradedSession]
+
+
+class ReconcileRequest(BaseModel):
+    config_text: str
+    job_id: str | None = None
+
+
+class ReconcileField(BaseModel):
+    field: str
+    outcome: str
+    config: object = None
+    wire: object = None
+    note: str = ""
+
+
+class TunnelReconciliation(BaseModel):
+    tunnel_name: str
+    session_id: str | None = None
+    initiator_ip: str | None = None
+    responder_ip: str | None = None
+    comparisons: list[ReconcileField] = []
+
+
+class ReconcileResponse(BaseModel):
+    format: str | None = None
+    tunnels_count: int = 0
+    reconciliations: list[TunnelReconciliation] = []
+
+
+@app.get("/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    """`parser_available` is false while Block A's Stage 2 parser is unbuilt,
+    in which case /ingest returns fixture sessions -- see core.pipeline."""
+    return HealthResponse(
+        status="ok", version=VERSION, parser_available=pipeline.parser_available()
+    )
+
+
+_METRICS_PATH = Path(__file__).resolve().parent.parent / "models" / "eval_metrics.json"
+
+
+@app.get("/model/metrics")
+def model_metrics() -> dict:
+    """Stage 4b evaluation artifacts for the dashboard: accuracy, macro-F1,
+    per-class scores and RandomForest feature importances. ``{}`` until a model
+    is trained (`python -m core.classifiers.train`)."""
+    import json
+
+    if not _METRICS_PATH.exists():
+        return {}
+    try:
+        return json.loads(_METRICS_PATH.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+@app.post("/ingest", response_model=IngestResponse)
+async def ingest(file: UploadFile = File(...)) -> IngestResponse:
+    """Analyse an uploaded pcap and persist the resulting sessions."""
+    job_id = str(uuid.uuid4())
+    target = UPLOAD_DIR / f"{job_id}-{Path(file.filename or 'capture.pcap').name}"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with target.open("wb") as fh:
+            shutil.copyfileobj(file.file, fh)
+
+        # Analysis is CPU-bound and synchronous; keep the event loop free so
+        # /ws/live subscribers are not blocked by a large upload.
+        sessions = await asyncio.to_thread(pipeline.analyze_capture, target, "pcap_upload")
+    finally:
+        await file.close()
+        target.unlink(missing_ok=True)
+
+    store.save_sessions(job_id, sessions, capture_file=file.filename)
+    store.save_events(job_id, detect_anomalies(sessions))
+    await _broadcast(sessions)
+
+    return IngestResponse(
+        session_count=len(sessions),
+        job_id=job_id,
+        fixture_mode=not pipeline.parser_available(),
+    )
+
+
+@app.get("/sessions", response_model=list[VPNSession])
+def get_sessions(
+    severity: str | None = None,
+    job_id: str | None = None,
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+) -> list[VPNSession]:
+    return store.list_sessions(severity=severity, job_id=job_id, limit=limit, offset=offset)
+
+
+@app.get("/session/{session_id}", response_model=VPNSession)
+def get_session(session_id: str) -> VPNSession:
+    session = store.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"no session {session_id}")
+    return session
+
+
+@app.get("/events", response_model=list[AnomalyEvent])
+def get_events(session_id: str | None = None, severity: str | None = None) -> list[AnomalyEvent]:
+    return store.list_events(session_id=session_id, severity=severity)
+
+
+@app.get("/sessions/diff", response_model=DiffResponse)
+def diff(base_job: str, compare_job: str) -> DiffResponse:
+    """Compare two captures: new peers, gone peers, and sessions that got worse."""
+    for job in (base_job, compare_job):
+        if not store.job_exists(job):
+            raise HTTPException(status_code=404, detail=f"no job {job}")
+
+    base = {s.session_id: s for s in store.list_sessions(job_id=base_job, limit=1000)}
+    compare = {s.session_id: s for s in store.list_sessions(job_id=compare_job, limit=1000)}
+
+    degraded = [
+        DegradedSession(
+            session_id=sid,
+            base=base[sid],
+            compare=compare[sid],
+            base_score=base[sid].security_assessment.risk_score,
+            compare_score=compare[sid].security_assessment.risk_score,
+            base_severity=base[sid].security_assessment.overall_severity,
+            compare_severity=compare[sid].security_assessment.overall_severity,
+        )
+        for sid in sorted(base.keys() & compare.keys())
+        if compare[sid].security_assessment.risk_score < base[sid].security_assessment.risk_score
+    ]
+    return DiffResponse(
+        added=[compare[sid] for sid in sorted(compare.keys() - base.keys())],
+        removed=[base[sid] for sid in sorted(base.keys() - compare.keys())],
+        degraded=degraded,
+    )
+
+
+def _write_cbom(sessions, path, capture_name=""):
+    import json
+    from core.evidence.record import EvidenceRecord, Finding, Status, Vantage
+    from core.pq.cbom import to_cyclonedx
+
+    records = []
+    for s in sessions:
+        rec = EvidenceRecord(src=s.initiator_ip, dst=s.responder_ip)
+        rec.findings["ike_version"] = Finding("ike_version", Status.OBSERVED, Vantage.T1, "parser", s.ike.version)
+        rec.findings["ike_encr"] = Finding("ike_encr", Status.OBSERVED, Vantage.T1, "parser", s.ike.encryption)
+        rec.findings["ike_dh_group"] = Finding("ike_dh_group", Status.OBSERVED, Vantage.T1, "parser", s.ike.dh_group)
+        rec._ike = [1]
+        records.append(rec)
+    cbom_data = to_cyclonedx(records, source=capture_name or "ipsec-estate")
+    path.write_text(json.dumps(cbom_data, indent=2))
+
+
+_REPORT_BUILDERS = {
+    "executive": ("pdf", lambda s, p, n: render.write_executive_pdf(s, p, n)),
+    "technical": ("html", lambda s, p, n: render.write_technical_html(s, p, n)),
+    "json": ("json", lambda s, p, n: export.write_json(s, p)),
+    "cef": ("cef", lambda s, p, n: export.write_cef(s, p)),
+    "cbom": ("json", lambda s, p, n: _write_cbom(s, p, n)),
+}
+
+
+@app.get("/intel/{product}")
+def get_intel(product: str) -> dict:
+    """Look up known CVEs and CISA KEV alerts for a fingerprinted VPN implementation."""
+    from core.intel.lookup import lookup
+
+    return lookup(product, timeout=5)
+
+
+@app.post("/config/reconcile", response_model=ReconcileResponse)
+def reconcile_config(request: ReconcileRequest) -> ReconcileResponse:
+    """Compare an IPsec configuration (swanctl.conf / ipsec.conf) with active wire sessions."""
+    from core.config.parse import parse_config
+    from core.config.reconcile import reconcile
+    from core.evidence.record import EvidenceRecord, Finding, Status, Vantage
+
+    parsed = parse_config(request.config_text)
+    tunnels = parsed.get("tunnels", [])
+
+    sessions = []
+    if request.job_id:
+        sessions = store.list_sessions(job_id=request.job_id, limit=500)
+    if not sessions:
+        sessions = store.list_sessions(limit=50)
+
+    reconciliations = []
+    for tunnel in tunnels:
+        matched_session = None
+        local = tunnel.get("local_addrs", "")
+        remote = tunnel.get("remote_addrs", "")
+        for s in sessions:
+            if (s.initiator_ip and s.initiator_ip in local) or (s.responder_ip and s.responder_ip in remote):
+                matched_session = s
+                break
+        if not matched_session and sessions:
+            matched_session = sessions[0]
+
+        if matched_session:
+            rec = EvidenceRecord(src=matched_session.initiator_ip, dst=matched_session.responder_ip)
+            rec.findings["ike_version"] = Finding("ike_version", Status.OBSERVED, Vantage.T1, "parser", matched_session.ike.version)
+            rec.findings["ike_encr"] = Finding("ike_encr", Status.OBSERVED, Vantage.T1, "parser", matched_session.ike.encryption)
+            rec.findings["ike_dh_group"] = Finding("ike_dh_group", Status.OBSERVED, Vantage.T1, "parser", matched_session.ike.dh_group)
+            rec._ike = [{"exchange": 34, "is_response": False, "src": matched_session.initiator_ip, "dst": matched_session.responder_ip}]
+            comps = reconcile(tunnel, rec)
+            reconciliations.append(
+                TunnelReconciliation(
+                    tunnel_name=tunnel.get("name", "unnamed-tunnel"),
+                    session_id=matched_session.session_id,
+                    initiator_ip=matched_session.initiator_ip,
+                    responder_ip=matched_session.responder_ip,
+                    comparisons=[
+                        ReconcileField(
+                            field=c.field,
+                            outcome=c.outcome,
+                            config=c.config,
+                            wire=c.wire,
+                            note=c.note,
+                        )
+                        for c in comps
+                    ],
+                )
+            )
+
+    return ReconcileResponse(
+        format=parsed.get("format"),
+        tunnels_count=len(tunnels),
+        reconciliations=reconciliations,
+    )
+
+
+@app.post("/report/{job_id}", response_model=ReportResponse)
+async def build_report(job_id: str, request: ReportRequest) -> ReportResponse:
+    sessions = store.list_sessions(job_id=job_id, limit=1000)
+    if not sessions:
+        raise HTTPException(status_code=404, detail=f"no sessions for job {job_id}")
+
+    suffix, builder = _REPORT_BUILDERS[request.type]
+    path = REPORT_DIR / f"{job_id}-{request.type}.{suffix}"
+    capture_name = sessions[0].capture_file
+    await asyncio.to_thread(builder, sessions, path, capture_name)
+
+    return ReportResponse(download_url=f"/report/download/{path.name}")
+
+
+@app.get("/report/download/{filename}")
+def download_report(filename: str) -> FileResponse:
+    # Resolve and confine to REPORT_DIR: `filename` is user-controlled and
+    # could otherwise traverse out with '..' or an absolute path.
+    path = (REPORT_DIR / filename).resolve()
+    if not path.is_relative_to(REPORT_DIR.resolve()) or not path.is_file():
+        raise HTTPException(status_code=404, detail="no such report")
+    return FileResponse(path, filename=path.name)
+
+
+# --- live capture stream (P3-T8) -------------------------------------------
+
+_subscribers: set[WebSocket] = set()
+
+
+async def _broadcast(sessions: list[VPNSession]) -> None:
+    """Push new sessions to every live subscriber; drop those that have gone."""
+    if not _subscribers:
+        return
+    dead = set()
+    for socket in list(_subscribers):
+        try:
+            for session in sessions:
+                await socket.send_json(session.model_dump(mode="json"))
+        except (WebSocketDisconnect, RuntimeError):
+            dead.add(socket)
+    _subscribers.difference_update(dead)
+
+
+@app.websocket("/ws/live")
+async def live(websocket: WebSocket, nic: str | None = None) -> None:
+    """Stream sessions as they are detected.
+
+    Every ingest broadcasts here, so the dashboard updates without polling.
+    Live NIC capture itself is Stage 1 (Block A); until that lands this carries
+    upload-driven sessions only.
+    """
+    await websocket.accept()
+    _subscribers.add(websocket)
+    try:
+        while True:
+            # Keep the connection open; the client is not required to send.
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        with contextlib.suppress(KeyError):
+            _subscribers.remove(websocket)
