@@ -1,4 +1,4 @@
-"""Stage 3 - ESP/AH Flow Feature Extractor (P2, Block A / @shivansh193).
+"""Stage 3 - ESP/AH Flow Feature Extractor (Payodhi Flow Engine).
 
 The ESP payload is encrypted, so traffic characteristics are inferred from
 metadata only: packet size distribution, inter-arrival timing, directionality,

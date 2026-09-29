@@ -10,12 +10,12 @@ This repository contains the complete implementation for **Smart India Hackathon
 - **Submission Document:** [`SUBMISSION.md`](file:///Users/vangaujjwalsai/payodhi2BlockChain/SUBMISSION.md)
 
 ## Team Structure (6 Members)
-- **Member 1:** Lead & Systems Architect (`api/`, `core/pipeline.py`, Docker, DB)
-- **Member 2:** Packet Ingestion & Protocol Decoder (`core/ingestion/`, `core/ike_parser/`)
-- **Member 3:** AI/ML Flow Classifier & Side-Channel Engine (`core/flow/`, `core/classifiers/`, `models/`)
-- **Member 4:** Security Compliance, Threat Rules & Vendor Remediation (`core/rules/`)
-- **Member 5:** Frontend UI/UX, D3 Topology & Interactive Dashboard (`frontend/`)
-- **Member 6:** PPT Presentation Deck, Reports & Demo Orchestration (`reporting/`, `docs/`)
+- **Sanju:** Member 1 — Systems Architect & Ingestion Pipeline (`api/`, `core/pipeline.py`)
+- **Vasi:** Member 2 — Packet Ingestion & RFC 7296 Protocol Decoder (`core/ingestion/`, `core/ike_parser/`)
+- **Gopi:** Member 3 — AI/ML Flow Classifier & Side-Channel Engine (`core/flow/`, `core/classifiers/`, `models/`)
+- **Geeta:** Member 4 — Security Compliance, Threat Rules & Vendor Remediation (`core/rules/`)
+- **Siri:** Member 5 — Frontend UI/UX, D3 Topology & Interactive Dashboard (`frontend/`)
+- **Ujjwal:** Member 6 — Team Lead, Defense Reporting Suite & Presentation (`reporting/`, `docs/`)
 
 ## Quickstart for Hackathon Judges & Developers
 1. **Seed Demo DB (Instant zero-dependency demo):**

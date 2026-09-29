@@ -7,6 +7,7 @@
 - **Theme:** Blockchain & Cybersecurity
 - **Platform Name:** Payodhi (Payodhi-IPsec)
 - **Team Size:** 6 Members
+- **Team Members:** Sanju, Vasi, Gopi, Geeta, Siri, Ujjwal (Team Lead)
 
 ---
 

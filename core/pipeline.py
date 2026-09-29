@@ -5,7 +5,7 @@ Stage 2 IKE parser, Stage 3 flow features, Stage 4a/4b classifiers) exists yet.
 Everything downstream -- the API, the DB, the reports -- consumes
 :func:`analyze_capture` and is unaffected when the real components land.
 
-Block A is owned by @shivansh193 and lands incrementally. Each stage is probed
+The analysis engine operates incrementally. Each stage is probed
 independently, so a capture benefits from the IKE parser as soon as it exists
 even while the classifier is still missing.
 

@@ -1,4 +1,4 @@
-"""Stage 4a + 4b - Classifiers (P2, Block A / @shivansh193).
+"""Stage 4a + 4b - Classifiers (Payodhi ML Engine).
 
 Stage 4b  Traffic-Type Classifier -- the core ML component. Given a Stage 3
           flow feature vector, predict the traffic type inside the tunnel

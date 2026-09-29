@@ -42,11 +42,12 @@ Thumbs.db
 node_modules/
 frontend/dist/
 frontend/build/
+frontend/out/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# --- VaultScope generated artifacts ---
+# --- Payodhi generated artifacts ---
 # Captures are large and regenerable by scripts/generate_dataset.py, so they
 # stay out of git. The label JSONs are the ground truth, they are small, and a
 # change to one should show up in a diff -- so they are tracked. See

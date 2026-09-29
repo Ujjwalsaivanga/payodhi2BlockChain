@@ -1,4 +1,4 @@
-"""FastAPI backend + WebSocket layer (P3, Block B / @p4ralyn).
+"""FastAPI backend + WebSocket layer (Payodhi Core API).
 
 Placeholder package created during environment setup. Block B owns the
 implementation (upload/analyze endpoints + live-capture WebSocket) against the

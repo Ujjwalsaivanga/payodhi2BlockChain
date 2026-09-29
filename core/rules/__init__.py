@@ -1,4 +1,4 @@
-"""Stage 4c - Security Rule Engine (P3, Block B / @p4ralyn).
+"""Stage 4c - Security Rule Engine (Payodhi Rule Engine).
 
 Evaluate each VPNSession against rules.yaml to identify weaknesses, assign
 severity, link CVEs/standards, then feed the weighted scoring model and

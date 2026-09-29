@@ -1,4 +1,4 @@
-# VaultScope backend: FastAPI + the Stage 2 parser + Stage 5 report rendering.
+# Payodhi backend: FastAPI + the Stage 2 parser + Stage 5 report rendering.
 FROM python:3.11-slim
 
 # tshark backs pyshark (Stage 1); pango and cairo back weasyprint (Stage 5).
@@ -28,9 +28,9 @@ COPY data/mock ./data/mock
 COPY models ./models
 
 # The database and rendered reports live on a volume, not in the image.
-ENV VAULTSCOPE_DB=/var/lib/vaultscope/vaultscope.sqlite \
-    VAULTSCOPE_REPORT_DIR=/var/lib/vaultscope/reports
-RUN mkdir -p /var/lib/vaultscope/reports
+ENV PAYODHI_DB=/var/lib/payodhi/payodhi.sqlite \
+    PAYODHI_REPORT_DIR=/var/lib/payodhi/reports
+RUN mkdir -p /var/lib/payodhi/reports
 
 EXPOSE 8000
 CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,4 +1,4 @@
-"""Stage 1 - Ingestion Engine (P1, Block A / @shivansh193).
+"""Stage 1 - Ingestion Engine (Payodhi Ingestion Engine).
 
 Accept a pcap / pcapng file (or, via the pyshark backend, a live interface) and
 produce per-session packet streams bucketed by IKE SA identifier:

@@ -2,7 +2,7 @@
 
 Stage 5: merges the Stage 4a/4b/4c outputs per session into one record, derives
 the risk score / threat matrix / AI confidence score, and renders the executive
-and technical reports (Jinja2 -> WeasyPrint/ReportLab). P3, Block B / @p4ralyn.
+and technical reports (Jinja2 -> WeasyPrint/ReportLab). Payodhi Reporting Suite.
 """
 
 import os
