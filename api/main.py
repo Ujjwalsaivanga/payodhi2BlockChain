@@ -53,6 +53,19 @@ def _startup() -> None:
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
+@app.get("/")
+def root() -> dict:
+    """Root info endpoint pointing to Swagger docs and API endpoints."""
+    return {
+        "service": "Payodhi IPsec Analyzer API",
+        "version": VERSION,
+        "status": "online",
+        "documentation": "/docs",
+        "health": "/health",
+        "sessions": "/sessions",
+    }
+
+
 class IngestResponse(BaseModel):
     session_count: int
     job_id: str
