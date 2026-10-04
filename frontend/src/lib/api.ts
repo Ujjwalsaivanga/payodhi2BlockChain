@@ -15,10 +15,12 @@ import type {
   VPNSession,
 } from "./types";
 
-export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000").replace(
-  /\/$/,
-  "",
-);
+const rawBase = (process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000").trim();
+export const API_BASE = (
+  rawBase.startsWith("http://") || rawBase.startsWith("https://") || rawBase.startsWith("/")
+    ? rawBase
+    : `https://${rawBase}`
+).replace(/\/$/, "");
 
 export class ApiError extends Error {
   constructor(

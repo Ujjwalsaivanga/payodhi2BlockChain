@@ -27,10 +27,12 @@ COPY data/mock ./data/mock
 # confidence and the technical report loses its confusion matrix.
 COPY models ./models
 
+COPY scripts ./scripts
+
 # The database and rendered reports live on a volume, not in the image.
 ENV PAYODHI_DB=/var/lib/payodhi/payodhi.sqlite \
     PAYODHI_REPORT_DIR=/var/lib/payodhi/reports
 RUN mkdir -p /var/lib/payodhi/reports
 
 EXPOSE 8000
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "python3 scripts/seed_demo_db.py || true; exec uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

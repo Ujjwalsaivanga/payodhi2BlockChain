@@ -1,0 +1,29 @@
+services:
+  # Payodhi Backend: FastAPI + tshark + weasyprint + SQLite
+  - type: web
+    name: payodhi-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+
+  # Payodhi Frontend: Next.js Defense SOC Console (Static Export)
+  - type: web
+    name: payodhi-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: out
+    plan: free
+    autoDeploy: true
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: NEXT_PUBLIC_API_BASE
+        fromService:
+          type: web
+          name: payodhi-backend
+          property: host
