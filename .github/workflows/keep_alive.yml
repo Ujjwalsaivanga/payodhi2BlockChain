@@ -1,0 +1,15 @@
+name: Keep Render Backend Warm (24/7 SIH Evaluation)
+
+on:
+  schedule:
+    # Ping every 10 minutes to prevent Render free instance from spinning down
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Backend Health Endpoint
+        run: |
+          curl -fsS --retry 3 https://payodhi-backend.onrender.com/health || true
