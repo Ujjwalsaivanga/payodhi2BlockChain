@@ -9,11 +9,13 @@ services:
     autoDeploy: true
 
   # Payodhi Frontend: Next.js Defense SOC Console (Static Export)
-  - type: static
+  - type: web
     name: payodhi-frontend
+    runtime: static
     rootDir: frontend
     buildCommand: npm ci && npm run build
     staticPublishPath: out
+    autoDeploy: true
     routes:
       - type: rewrite
         source: /*
