@@ -1,4 +1,15 @@
-# Payodhi backend: FastAPI + the Stage 2 parser + Stage 5 report rendering.
+# Stage 1: Build the Next.js Defense Console static export
+FROM node:22-alpine AS frontend-builder
+WORKDIR /app/frontend
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend/ ./
+ENV NEXT_PUBLIC_API_BASE=/api
+RUN npm run build
+
+# Stage 2: Payodhi unified runtime: FastAPI + tshark + weasyprint + Stage 4 ML models + Defense Console
 FROM python:3.11-slim
 
 # tshark backs pyshark (Stage 1); pango and cairo back weasyprint (Stage 5).
@@ -26,8 +37,10 @@ COPY data/mock ./data/mock
 # an untrained classifier: every session reports traffic type "Other" at zero
 # confidence and the technical report loses its confusion matrix.
 COPY models ./models
-
 COPY scripts ./scripts
+
+# Copy compiled frontend static export from Stage 1 into /app/frontend/out
+COPY --from=frontend-builder /app/frontend/out ./frontend/out
 
 # The database and rendered reports live on a volume, not in the image.
 ENV PAYODHI_DB=/var/lib/payodhi/payodhi.sqlite \

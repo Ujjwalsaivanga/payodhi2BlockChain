@@ -14,6 +14,7 @@ ENV NEXT_PUBLIC_API_BASE=/api
 RUN npm run build
 
 FROM nginx:1.27-alpine
+ENV PORT=80 BACKEND_URL=http://backend:8000/
 COPY --from=build /app/out /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 EXPOSE 80

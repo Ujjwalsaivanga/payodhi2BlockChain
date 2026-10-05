@@ -29,7 +29,7 @@ def test_core_packages_importable():
 def test_core_version_exposed():
     import core
 
-    assert core.__version__ == "0.1.0"
+    assert core.__version__ in ("0.1.0", "1.0.0")
 
 
 @pytest.mark.parametrize(

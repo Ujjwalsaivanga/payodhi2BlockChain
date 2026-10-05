@@ -23,6 +23,14 @@ cd frontend && npm run dev
 
 Open **`http://localhost:3000`** in your browser to explore the Defense SOC Command Console.
 
+### Cloud Deployment (Railway 1-Click)
+Deploy the full stack (Frontend + Backend + Demo DB) with a single link on Railway:
+```bash
+# Push to GitHub, then in Railway:
+# "New Project" -> "Deploy from GitHub repo" -> Select payodhi2BlockChain
+```
+See the complete step-by-step instructions in [`docs/RAILWAY_DEPLOYMENT.md`](docs/RAILWAY_DEPLOYMENT.md).
+
 ---
 
 ## 2. 6-Member Team Structure & Ownership
@@ -72,6 +80,7 @@ Cleartext IKE Handshake                         Opaque ESP Payload
 ## 4. Key Documentation & Project Guides
 
 - **Master Build Plan & Traceability Matrix:** [`docs/SIH_MASTER_BUILD_PLAN.md`](docs/SIH_MASTER_BUILD_PLAN.md)
+- **Railway Cloud Deployment Guide:** [`docs/RAILWAY_DEPLOYMENT.md`](docs/RAILWAY_DEPLOYMENT.md)
 - **Low-Level Design Document (LLD):** [`SIH26160_LLD.md`](SIH26160_LLD.md)
 - **Live Demo Script & Timed Runbook:** [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md)
 - **Official SIH Submission Dossier:** [`SUBMISSION.md`](SUBMISSION.md)

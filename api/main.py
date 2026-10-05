@@ -12,10 +12,12 @@ import uuid
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from starlette.staticfiles import StaticFiles
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from api import store
 from core import pipeline
@@ -27,12 +29,32 @@ VERSION = "1.0.0"
 
 REPORT_DIR = Path(__file__).resolve().parent.parent / "reporting" / "out"
 UPLOAD_DIR = Path(tempfile.gettempdir()) / "payodhi-uploads"
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend" / "out"
 
 app = FastAPI(
     title="Payodhi IPsec Analyzer",
     version=VERSION,
     description="AI-powered IPsec VPN protocol analyzer and security assessment framework (SIH 26160 · NTRO).",
 )
+
+
+class ApiPrefixMiddleware:
+    """Allows endpoints to be called seamlessly with or without '/api' prefix."""
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] in ("http", "websocket"):
+            path: str = scope.get("path", "")
+            if path == "/api":
+                scope["path"] = "/"
+            elif path.startswith("/api/"):
+                scope["path"] = path[4:]
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(ApiPrefixMiddleware)
 
 # The dashboard is served from a different origin in dev (Vite on :5173) and
 # from nginx in Compose. Wide-open CORS is acceptable for an on-premise
@@ -45,6 +67,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+if FRONTEND_DIR.is_dir() and (FRONTEND_DIR / "_next").is_dir():
+    app.mount("/_next", StaticFiles(directory=str(FRONTEND_DIR / "_next")), name="next_static")
+
 
 @app.on_event("startup")
 def _startup() -> None:
@@ -54,8 +79,11 @@ def _startup() -> None:
 
 
 @app.get("/")
-def root() -> dict:
-    """Root info endpoint pointing to Swagger docs and API endpoints."""
+def root(request: Request):
+    """Root info endpoint or Defense SOC Console if frontend static build is present."""
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept and FRONTEND_DIR.is_dir() and (FRONTEND_DIR / "index.html").is_file():
+        return FileResponse(FRONTEND_DIR / "index.html")
     return {
         "service": "Payodhi IPsec Analyzer API",
         "version": VERSION,
@@ -191,13 +219,23 @@ async def ingest(file: UploadFile = File(...)) -> IngestResponse:
     )
 
 
-@app.get("/sessions", response_model=list[VPNSession])
+@app.get("/sessions")
 def get_sessions(
+    request: Request,
     severity: str | None = None,
     job_id: str | None = None,
     limit: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-) -> list[VPNSession]:
+):
+    accept = request.headers.get("accept", "")
+    raw_path = request.scope.get("raw_path", b"")
+    if (
+        "text/html" in accept
+        and not raw_path.startswith(b"/api")
+        and FRONTEND_DIR.is_dir()
+        and (FRONTEND_DIR / "sessions.html").is_file()
+    ):
+        return FileResponse(FRONTEND_DIR / "sessions.html")
     return store.list_sessions(severity=severity, job_id=job_id, limit=limit, offset=offset)
 
 
@@ -401,3 +439,28 @@ async def live(websocket: WebSocket, nic: str | None = None) -> None:
     finally:
         with contextlib.suppress(KeyError):
             _subscribers.remove(websocket)
+
+
+@app.get("/{full_path:path}")
+def serve_frontend_catch_all(full_path: str):
+    """Serve Next.js static pages, assets, and SPA fallbacks when built."""
+    if not FRONTEND_DIR.is_dir():
+        raise HTTPException(status_code=404, detail="Not found")
+
+    target = (FRONTEND_DIR / full_path).resolve()
+    if target.is_relative_to(FRONTEND_DIR) and target.is_file():
+        return FileResponse(target)
+
+    html_target = (FRONTEND_DIR / f"{full_path}.html").resolve()
+    if html_target.is_relative_to(FRONTEND_DIR) and html_target.is_file():
+        return FileResponse(html_target)
+
+    index_target = (FRONTEND_DIR / full_path / "index.html").resolve()
+    if index_target.is_relative_to(FRONTEND_DIR) and index_target.is_file():
+        return FileResponse(index_target)
+
+    fallback_404 = FRONTEND_DIR / "404.html"
+    if fallback_404.is_file():
+        return FileResponse(fallback_404, status_code=404)
+
+    raise HTTPException(status_code=404, detail="Not found")
